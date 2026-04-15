@@ -1,42 +1,61 @@
 <template>
   <div class="register-page">
+    <div class="header">
+      <h1>加入我们</h1>
+      <p>开启你的英语学习之旅</p>
+    </div>
+
     <van-form @submit="onSubmit">
       <van-cell-group inset>
         <van-field
-          v-model="email"
-          name="email"
+          v-model="form.username"
+          label="用户名"
+          placeholder="请输入用户名（用于登录）"
+          :rules="[{ required: true, message: '请填写用户名' }]"
+        />
+        <van-field
+          v-model="form.email"
+          type="email"
           label="邮箱"
           placeholder="请输入邮箱"
-          :rules="[{ required: true, message: '请输入邮箱' }]"
+          :rules="[{ required: true, message: '请填写邮箱' }]"
         />
         <van-field
-          v-model="password"
+          v-model="form.password"
           type="password"
-          name="password"
           label="密码"
-          placeholder="请输入密码（至少6位）"
-          :rules="[{ required: true, message: '请输入密码' }]"
+          placeholder="请输入密码"
+          :rules="[
+            { required: true, message: '请填写密码' },
+            { pattern: /.{6,}/, message: '密码至少6位' }
+          ]"
         />
         <van-field
-          v-model="confirmPassword"
+          v-model="form.confirmPassword"
           type="password"
-          name="confirmPassword"
           label="确认密码"
           placeholder="请再次输入密码"
           :rules="[{ required: true, message: '请确认密码' }]"
         />
-        <van-field
-          v-model="name"
-          name="name"
-          label="昵称"
-          placeholder="请输入昵称（选填）"
-        />
       </van-cell-group>
+
       <div class="form-actions">
-        <van-button round block type="primary" native-type="submit" :loading="loading">
+        <van-button
+          type="primary"
+          round
+          block
+          :loading="loading"
+          native-type="submit"
+        >
           注册
         </van-button>
-        <van-button round block type="default" class="login-btn" @click="goToLogin">
+        <van-button
+          type="default"
+          round
+          block
+          class="login-btn"
+          @click="goLogin"
+        >
           已有账号？去登录
         </van-button>
       </div>
@@ -47,65 +66,87 @@
 <script setup lang="ts">
 useHead({
   title: '注册 - 英语学习平台',
-  meta: [
-    { name: 'description', content: '注册英语学习平台账号' },
-    { name: 'robots', content: 'noindex' }
-  ]
+  meta: [{ name: 'robots', content: 'noindex' }]
 })
 
 const router = useRouter()
-
-const email = ref('')
-const password = ref('')
-const confirmPassword = ref('')
-const name = ref('')
 const loading = ref(false)
+const form = ref({ username: '', email: '', password: '', confirmPassword: '' })
 
 const onSubmit = async () => {
-  if (password.value !== confirmPassword.value) {
-    showToast('两次密码输入不一致')
-    return
-  }
-  if (password.value.length < 6) {
-    showToast('密码至少6位')
+  if (form.value.password !== form.value.confirmPassword) {
+    showToast({ message: '两次密码输入不一致', position: 'top' })
     return
   }
 
   loading.value = true
   try {
-    const { data, error } = await useFetch('/api/auth/register', {
+    const res = await $fetch<{ success: boolean; userId: string }>('/api/auth/register', {
       method: 'POST',
       body: {
-        email: email.value,
-        password: password.value,
-        name: name.value || undefined
+        username: form.value.username,
+        email: form.value.email,
+        password: form.value.password
       }
     })
-    if (!error.value && data.value) {
-      showToast('注册成功，请登录')
+    if (res.success) {
+      showToast({ message: '注册成功，请登录', position: 'top' })
       router.push('/login')
     }
+  } catch (e: any) {
+    showToast({ message: e?.data?.message || '注册失败', position: 'top' })
   } finally {
     loading.value = false
   }
 }
 
-const goToLogin = () => {
-  router.push('/login')
-}
+const goLogin = () => router.push('/login')
 </script>
 
 <style scoped>
 .register-page {
-  padding: 24px 16px;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 48px 16px 24px;
+}
+
+.header {
+  text-align: center;
+  color: white;
+  margin-bottom: 40px;
+}
+
+.header h1 {
+  font-size: 28px;
+  font-weight: bold;
+  margin: 0 0 8px;
+}
+
+.header p {
+  font-size: 16px;
+  margin: 0;
+  opacity: 0.8;
+}
+
+.van-form {
+  max-width: 400px;
+  margin: 0 auto;
 }
 
 .form-actions {
-  margin-top: 24px;
+  margin-top: 32px;
   padding: 0 16px;
 }
 
+.form-actions .van-button--primary {
+  background: #764ba2;
+  border: none;
+}
+
 .login-btn {
-  margin-top: 16px;
+  margin-top: 12px;
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.5);
+  color: white;
 }
 </style>
