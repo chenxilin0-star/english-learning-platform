@@ -1,14 +1,12 @@
-// TTS Composable - 百度TTS封装
-// 支持0.5x~1.5x播放速度
+// TTS Composable - 基于浏览器 Web Speech API
+// 完全免费，无需 API Key，支持中文/英文
 
 interface TTSOptions {
-  speed?: number // 0.5 ~ 1.5
-  pitch?: number // 0.5 ~ 2.0
-  volume?: number // 0.0 ~ 1.0
-  per?: number // 0-3 发音人: 0女声 1男声 3情感男声 4情感女声
+  speed?: number   // 0.5 ~ 1.5
+  pitch?: number   // 0.5 ~ 2.0
+  volume?: number   // 0.0 ~ 1.0
+  lang?: string     // 'zh-CN' | 'en-US' 等
 }
-
-const BAIDU_TTS_URL = 'https://tsn.baidu.com/text2audio'
 
 export const useTTS = () => {
   const isPlaying = ref(false)
@@ -21,29 +19,7 @@ export const useTTS = () => {
     return Math.max(0.5, Math.min(1.5, speed))
   }
 
-  // 构建TTS请求URL
-  const buildTTSUrl = (text: string, options: TTSOptions = {}): string => {
-    const speed = validateSpeed(options.speed ?? 1.0)
-    currentSpeed.value = speed
-    
-    const params = new URLSearchParams({
-      tex: encodeURIComponent(text),
-      per: String(options.per ?? 0),
-      spd: String(speed),
-      pit: String(options.pitch ?? 1.0),
-      vol: String(options.volume ?? 1.0),
-      aue: '3', // mp3格式
-      cuid: 'english_learning_app',
-      ctp: '1',
-      lan: 'zh',
-      // token需要在服务端获取，这里使用demo token
-      tok: 'demo_token'
-    })
-
-    return `${BAIDU_TTS_URL}?${params.toString()}`
-  }
-
-  // 播放文本
+  // 播放文本（Web Speech API）
   const speak = (text: string, options: TTSOptions = {}): Promise<void> => {
     return new Promise((resolve, reject) => {
       if (!text || text.trim() === '') {
@@ -51,41 +27,50 @@ export const useTTS = () => {
         return
       }
 
+      // 停止当前播放
+      window.speechSynthesis?.cancel()
+
       isLoading.value = true
       error.value = null
 
-      const audio = new Audio()
-      audio.src = buildTTSUrl(text, options)
-      audio.playbackRate = options.speed ?? 1.0
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.rate = validateSpeed(options.speed ?? 1.0)
+      utterance.pitch = options.pitch ?? 1.0
+      utterance.volume = options.volume ?? 1.0
+      utterance.lang = options.lang ?? 'en-US'
 
-      audio.onplay = () => {
+      utterance.onstart = () => {
         isPlaying.value = true
         isLoading.value = false
       }
 
-      audio.onended = () => {
+      utterance.onend = () => {
         isPlaying.value = false
         isLoading.value = false
         resolve()
       }
 
-      audio.onerror = (e) => {
+      utterance.onerror = (e) => {
         isPlaying.value = false
         isLoading.value = false
-        error.value = 'TTS播放失败，请检查网络连接'
-        reject(new Error('TTS playback failed'))
+        // 浏览器不支持时友好提示
+        if (e.error === 'not-allowed') {
+          error.value = '请允许浏览器播放音频'
+        } else if (e.error === 'no-speech') {
+          error.value = '未检测到语音输入'
+        } else {
+          error.value = 'TTS播放失败'
+        }
+        reject(new Error(`TTS error: ${e.error}`))
       }
 
-      audio.play().catch(err => {
-        isLoading.value = false
-        error.value = '音频播放失败'
-        reject(err)
-      })
+      window.speechSynthesis?.speak(utterance)
     })
   }
 
   // 停止播放
   const stop = () => {
+    window.speechSynthesis?.cancel()
     isPlaying.value = false
     isLoading.value = false
   }
