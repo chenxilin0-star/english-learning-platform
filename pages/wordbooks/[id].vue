@@ -35,6 +35,14 @@
       @click="showAddDialog = true"
     />
 
+    <van-floating-button
+      type="warning"
+      icon="records"
+      position="left-bottom"
+      style="bottom: 90px"
+      @click="showImportPopup = true"
+    />
+
     <!-- 添加单词弹窗 -->
     <van-dialog
       v-model:show="showAddDialog"
@@ -58,16 +66,77 @@
           left-arrow
           @click-left="showDetailPopup = false"
         />
-        <div v-if="selectedWord" class="detail-content">
+        <!-- 编辑模式 -->
+        <div v-if="isEditMode" class="edit-content">
+          <van-cell-group inset>
+            <van-field v-model="editWord.word" label="单词" placeholder="请输入单词" />
+            <van-field v-model="editWord.phonetic" label="音标" placeholder="请输入音标" />
+            <van-field v-model="editWord.meaning" label="释义" placeholder="请输入释义" />
+            <van-field v-model="editWord.example" label="例句" placeholder="请输入例句" type="textarea" rows="3" />
+          </van-cell-group>
+          <div class="edit-actions">
+            <van-button type="primary" round block @click="saveWord">保存</van-button>
+            <van-button plain round block @click="cancelEdit">取消</van-button>
+          </div>
+        </div>
+        <!-- 查看模式 -->
+        <div v-else-if="selectedWord" class="detail-content">
           <h2 class="word-title">{{ selectedWord.word }}</h2>
           <p class="word-phonetic">{{ selectedWord.phonetic }}</p>
           <van-button type="primary" size="small" @click="speakWord(selectedWord.word)">
             发音
           </van-button>
           <p class="word-definition">{{ selectedWord.definition }}</p>
-          <van-button type="danger" size="small" @click="deleteWord(selectedWord.id)">
-            删除
-          </van-button>
+          <p v-if="selectedWord.example" class="word-example">{{ selectedWord.example }}</p>
+          <div class="detail-actions">
+            <van-button type="warning" size="small" @click="startEdit">编辑</van-button>
+            <van-button type="danger" size="small" @click="deleteWord(selectedWord.id)">删除</van-button>
+          </div>
+        </div>
+      </div>
+    </van-popup>
+
+    <!-- 批量导入弹窗 -->
+    <van-popup v-model:show="showImportPopup" position="bottom" style="height: 80%">
+      <div class="import-popup">
+        <van-nav-bar
+          title="批量导入单词"
+          left-text="关闭"
+          left-arrow
+          @click-left="showImportPopup = false"
+        />
+        <van-tabs v-model:active="importTab">
+          <van-tab title="文本粘贴" name="text">
+            <div class="import-text-area">
+              <van-field
+                v-model="importText"
+                type="textarea"
+                placeholder="每行一个单词，格式：单词|释义|例句（可选）
+例如：
+hello|你好|Hello, world!
+apple|苹果|An apple a day keeps the doctor away."
+                rows="10"
+              />
+              <van-button type="primary" round block @click="importFromText">导入</van-button>
+            </div>
+          </van-tab>
+          <van-tab title="CSV上传" name="csv">
+            <div class="import-csv-area">
+              <van-uploader :after-read="handleCSVUpload" accept=".csv">
+                <van-button type="primary" icon="plus">选择CSV文件</van-button>
+              </van-uploader>
+              <p class="csv-format">CSV格式：word,phonetic,meaning,example</p>
+            </div>
+          </van-tab>
+        </van-tabs>
+        <div v-if="importResult" class="import-result">
+          <van-cell-group inset>
+            <van-cell title="成功" :value="importResult.success" />
+            <van-cell title="失败" :value="importResult.failed" />
+          </van-cell-group>
+          <div v-if="importResult.errors.length > 0" class="import-errors">
+            <p v-for="(err, idx) in importResult.errors" :key="idx" class="error-item">{{ err }}</p>
+          </div>
         </div>
       </div>
     </van-popup>
@@ -88,7 +157,14 @@ interface Word {
   word: string
   phonetic: string
   definition: string
+  example?: string
   bookId: string
+}
+
+interface ImportResult {
+  success: number
+  failed: number
+  errors: string[]
 }
 
 const route = useRoute()
@@ -103,7 +179,22 @@ const finished = ref(false)
 const refreshing = ref(false)
 const showAddDialog = ref(false)
 const showDetailPopup = ref(false)
+const showImportPopup = ref(false)
 const selectedWord = ref<Word | null>(null)
+
+// 编辑相关状态
+const isEditMode = ref(false)
+const editWord = reactive({
+  word: '',
+  phonetic: '',
+  meaning: '',
+  example: ''
+})
+
+// 批量导入相关状态
+const importTab = ref('text')
+const importText = ref('')
+const importResult = ref<ImportResult | null>(null)
 
 const newWord = reactive({
   word: '',
@@ -151,6 +242,106 @@ const addWord = async () => {
 const showWordDetail = (word: Word) => {
   selectedWord.value = word
   showDetailPopup.value = true
+  isEditMode.value = false
+}
+
+const startEdit = () => {
+  if (!selectedWord.value) return
+  editWord.word = selectedWord.value.word
+  editWord.phonetic = selectedWord.value.phonetic || ''
+  editWord.meaning = selectedWord.value.definition || ''
+  editWord.example = selectedWord.value.example || ''
+  isEditMode.value = true
+}
+
+const cancelEdit = () => {
+  isEditMode.value = false
+}
+
+const saveWord = async () => {
+  if (!selectedWord.value || !editWord.word.trim() || !editWord.meaning.trim()) {
+    showToast('单词和释义不能为空')
+    return
+  }
+
+  try {
+    await useFetch(`/api/words/${selectedWord.value.id}`, {
+      method: 'PATCH',
+      body: {
+        word: editWord.word,
+        phonetic: editWord.phonetic,
+        meaning: editWord.meaning,
+        example: editWord.example
+      }
+    })
+    showToast('保存成功')
+    isEditMode.value = false
+    await fetchWords()
+    // 更新选中单词的显示
+    if (selectedWord.value) {
+      selectedWord.value.word = editWord.word
+      selectedWord.value.phonetic = editWord.phonetic
+      selectedWord.value.definition = editWord.meaning
+      selectedWord.value.example = editWord.example
+    }
+  } catch {
+    showToast('保存失败')
+  }
+}
+
+const importFromText = async () => {
+  if (!importText.value.trim()) {
+    showToast('请输入要导入的内容')
+    return
+  }
+
+  try {
+    const { data } = await useFetch<ImportResult>('/api/words/import', {
+      method: 'POST',
+      body: {
+        content: importText.value,
+        wordBookId: wordbookId,
+        format: 'text'
+      }
+    })
+    if (data.value) {
+      importResult.value = data.value
+      if (data.value.failed === 0) {
+        showToast(`成功导入 ${data.value.success} 个单词`)
+        importText.value = ''
+        await fetchWords()
+      } else {
+        showToast(`导入完成：成功 ${data.value.success}，失败 ${data.value.failed}`)
+      }
+    }
+  } catch {
+    showToast('导入失败')
+  }
+}
+
+const handleCSVUpload = async (file: any) => {
+  try {
+    const text = file.content as string
+    const { data } = await useFetch<ImportResult>('/api/words/import', {
+      method: 'POST',
+      body: {
+        content: text,
+        wordBookId: wordbookId,
+        format: 'csv'
+      }
+    })
+    if (data.value) {
+      importResult.value = data.value
+      if (data.value.failed === 0) {
+        showToast(`成功导入 ${data.value.success} 个单词`)
+        await fetchWords()
+      } else {
+        showToast(`导入完成：成功 ${data.value.success}，失败 ${data.value.failed}`)
+      }
+    }
+  } catch {
+    showToast('导入失败')
+  }
 }
 
 const speakWord = async (word: string) => {
@@ -198,6 +389,23 @@ const goBack = () => {
   padding: 24px 16px;
 }
 
+.detail-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.edit-content {
+  padding: 24px 16px;
+}
+
+.edit-actions {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .word-title {
   font-size: 32px;
   margin-bottom: 8px;
@@ -212,5 +420,55 @@ const goBack = () => {
   margin-top: 24px;
   font-size: 16px;
   line-height: 1.6;
+}
+
+.word-example {
+  margin-top: 16px;
+  font-size: 14px;
+  color: #666;
+  font-style: italic;
+  line-height: 1.6;
+}
+
+/* 批量导入弹窗样式 */
+.import-popup {
+  height: 100%;
+  background: #f7f8fa;
+}
+
+.import-text-area {
+  padding: 16px;
+}
+
+.import-csv-area {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.csv-format {
+  font-size: 12px;
+  color: #999;
+}
+
+.import-result {
+  margin-top: 16px;
+}
+
+.import-errors {
+  margin-top: 12px;
+  padding: 12px;
+  background: #fff1e6;
+  border-radius: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.error-item {
+  font-size: 12px;
+  color: #ee0a24;
+  margin: 4px 0;
 }
 </style>
