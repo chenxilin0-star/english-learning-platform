@@ -1,0 +1,176 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id            String    @id @default(cuid())
+  username      String    @unique
+  email         String    @unique
+  passwordHash  String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // 关系
+  wordBooks     WordBook[]
+  dictationRecords DictationRecord[]
+  favorites     Favorite[]
+  calendarEntries CalendarEntry[]
+  authorizationCodes AuthorizationCode[]
+  mistakeWords  MistakeWord[]
+
+  @@index([email])
+  @@index([username])
+}
+
+// 单词本表
+model WordBook {
+  id        String   @id @default(cuid())
+  name      String
+  description String?
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关系
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  words     Word[]
+  favorites Favorite[]
+
+  @@index([userId])
+}
+
+// 单词表
+model Word {
+  id        String   @id @default(cuid())
+  word      String
+  phonetic  String?
+  meaning   String
+  example   String?
+  audioUrl  String?
+  wordBookId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关系
+  wordBook    WordBook         @relation(fields: [wordBookId], references: [id], onDelete: Cascade)
+  dictationItems DictationItem[]
+  mistakeWords   MistakeWord[]
+
+  @@index([wordBookId])
+  @@index([word])
+}
+
+// 听写记录表
+model DictationRecord {
+  id          String   @id @default(cuid())
+  userId      String
+  score       Int
+  totalWords  Int
+  correctNum  Int
+  wrongNum    Int
+  duration    Int      // 秒
+  difficulty  String   // easy, medium, hard
+  createdAt   DateTime @default(now())
+
+  // 关系
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dictationItems DictationItem[]
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// 听写条目表
+model DictationItem {
+  id                 String   @id @default(cuid())
+  dictationRecordId  String
+  wordId             String
+  userAnswer         String
+  isCorrect          Boolean
+  createdAt          DateTime @default(now())
+
+  // 关系
+  dictationRecord DictationRecord @relation(fields: [dictationRecordId], references: [id], onDelete: Cascade)
+  word            Word            @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@index([dictationRecordId])
+  @@index([wordId])
+}
+
+// 错题本表
+model MistakeWord {
+  id        String   @id @default(cuid())
+  userId    String
+  wordId    String
+  wrongCount Int     @default(1)
+  lastWrongAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关系
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word      Word     @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, wordId])
+  @@index([userId])
+}
+
+// 收藏表
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  wordBookId String
+  createdAt DateTime @default(now())
+
+  // 关系
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wordBook WordBook @relation(fields: [wordBookId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, wordBookId])
+  @@index([userId])
+}
+
+// 日历记录表
+model CalendarEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime
+  duration  Int      // 学习时长（分钟）
+  wordsLearned Int   // 当日学习单词数
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关系
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+// 授权码表
+model AuthorizationCode {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  userId    String?
+  type      String   // temporary, permanent
+  usedCount Int      @default(0)
+  maxUses   Int?     // null 表示无限制
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关系
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([code])
+  @@index([userId])
+}
